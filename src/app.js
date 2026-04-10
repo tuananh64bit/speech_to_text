@@ -344,31 +344,88 @@ class VoiceScribeApp {
   }
 
   async _addSegment(data) {
-    const segment = {
-      text: data.text,
-      translation: null,
-      timestamp: data.timestamp,
-      language: data.language,
-      confidence: data.confidence
-    };
+    if (!this.translationChain) this.translationChain = Promise.resolve();
 
-    this.segments.push(segment);
-    const index = this.segments.length - 1;
+    if (this.segments.length === 0) {
+      const segment = {
+        text: data.text,
+        translation: null,
+        timestamp: data.timestamp,
+        language: data.language,
+        confidence: data.confidence,
+        el: null
+      };
 
-    // Create DOM element
-    const segEl = this._createSegmentElement(segment, index);
-    this.els.transcriptList.insertBefore(segEl, this.els.interimSegment);
-    this._scrollToBottom();
+      this.segments.push(segment);
+      const index = 0;
 
-    // Translate
-    try {
-      const translation = await this.translator.translate(data.text, data.language);
-      segment.translation = translation;
-      this._updateSegmentTranslation(segEl, translation);
-    } catch (err) {
-      console.error('Translation failed:', err);
-      segment.translation = `[Lỗi dịch] ${data.text}`;
-      this._updateSegmentTranslation(segEl, segment.translation);
+      // Create DOM element
+      const segEl = this._createSegmentElement(segment, index);
+      segment.el = segEl;
+      this.els.transcriptList.insertBefore(segEl, this.els.interimSegment);
+      this._scrollToBottom();
+
+      // Translate
+      this.translationChain = this.translationChain.then(async () => {
+        try {
+          const translation = await this.translator.translate(data.text, data.language);
+          segment.translation = translation;
+          if (segment.el) {
+            this._updateSegmentTranslation(segment.el, translation);
+          }
+        } catch (err) {
+          console.error('Translation failed:', err);
+          segment.translation = `[Lỗi dịch] ${data.text}`;
+          if (segment.el) {
+            this._updateSegmentTranslation(segment.el, segment.translation);
+          }
+        }
+      });
+    } else {
+      const segment = this.segments[this.segments.length - 1];
+      
+      let separator = '';
+      const lastChar = segment.text.trim().slice(-1);
+      if (lastChar && !['.', '!', '?', '。', '！', '？'].includes(lastChar)) {
+          separator = '. ';
+      } else if (lastChar) {
+          separator = ' ';
+      }
+
+      const newText = data.text.trim();
+      if (!newText) return;
+
+      segment.text += separator + newText;
+
+      if (segment.el) {
+        const origEl = segment.el.querySelector('.segment-original');
+        if (origEl) origEl.innerHTML = this._escapeHtml(segment.text);
+      }
+      this._scrollToBottom();
+
+      // Translate in chain
+      this.translationChain = this.translationChain.then(async () => {
+        try {
+          const newTrans = await this.translator.translate(newText, data.language);
+          
+          let transSeparator = '';
+          const transText = (segment.translation || '').trim();
+          const lastTransChar = transText.slice(-1);
+          if (lastTransChar && !['.', '!', '?', '。', '！', '？'].includes(lastTransChar)) {
+              transSeparator = '. ';
+          } else if (lastTransChar) {
+              transSeparator = ' ';
+          }
+
+          segment.translation = (transText ? transText + transSeparator : '') + newTrans.trim();
+          
+          if (segment.el) {
+            this._updateSegmentTranslation(segment.el, segment.translation);
+          }
+        } catch (err) {
+          console.error('Translation failed:', err);
+        }
+      });
     }
   }
 
