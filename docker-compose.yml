@@ -1,0 +1,7 @@
+services:
+  voicescribe:
+    build: .
+    container_name: voicescribe
+    ports:
+      - "80:80"
+    restart: unless-stopped
